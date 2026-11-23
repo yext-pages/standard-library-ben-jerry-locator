@@ -37,6 +37,8 @@ export const MapPinIcon = ({
   disableContrastIcon,
   aspectRatio,
   selected,
+  imageAsPin,
+  imageSizeMultiplier,
 }: {
   color?: ThemeColor;
   resultIndex?: number;
@@ -45,6 +47,10 @@ export const MapPinIcon = ({
   disableContrastIcon?: boolean;
   aspectRatio?: number;
   selected?: boolean;
+  /** Renders `icon` as the whole pin (no teardrop background), at the standard pin size. */
+  imageAsPin?: boolean;
+  /** Scales an `imageAsPin` image around the pin tip. 1 is the default pin size. */
+  imageSizeMultiplier?: number;
 }) => {
   const { t } = useTranslation();
   const pinHeight = 41;
@@ -87,6 +93,45 @@ export const MapPinIcon = ({
       : t("showPinDetailsDefault", {
           defaultValue: "Show pin details",
         });
+
+  if (imageAsPin && icon) {
+    // The image is anchored at the pin tip and scaled around it, so the layout box (and
+    // therefore the map offset) is the same as other pins for every size and in the selected state.
+    const scale =
+      imageSizeMultiplier && imageSizeMultiplier > 0 ? imageSizeMultiplier : 1;
+    const tipX = 13.5;
+    const tipY = 35;
+    return (
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        className="components block cursor-pointer appearance-none border-0 bg-transparent p-0"
+      >
+        <svg
+          display="block"
+          overflow="visible"
+          height={selected ? pinScale * pinHeight : pinHeight}
+          width={selected ? pinScale * pinWidth : pinWidth}
+          viewBox="0 0 27 41"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <g
+            transform={`translate(${tipX} ${tipY}) scale(${scale}) translate(${-tipX} ${-tipY})`}
+          >
+            <image
+              href={icon}
+              x="0"
+              y={tipY - pinHeight}
+              width={pinWidth}
+              height={pinHeight}
+              preserveAspectRatio="xMidYMax meet"
+            />
+          </g>
+        </svg>
+      </button>
+    );
+  }
 
   return (
     <button

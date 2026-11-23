@@ -67,6 +67,8 @@ import {
 } from "react-icons/fa";
 import { z } from "zod";
 
+export type CustomCTALayout = "row" | "right" | "grid";
+
 export interface LocatorResultCardProps {
   /** The entity type this result card applies to. */
   entityType: LocatorEntityType;
@@ -245,6 +247,35 @@ export interface LocatorResultCardProps {
     liveVisibility: boolean;
   };
 
+  /**
+   * Up to 6 additional pill-shaped CTAs. A CTA is hidden for an entity when its link
+   * references an entity field that has no value.
+   */
+  customCTAs?: Array<{
+    /** Whether the CTA label is bold */
+    bold?: boolean;
+    /** Label for the CTA */
+    label: TranslatableString;
+    /** Template for the CTA link, which can contain entity field references */
+    link: TranslatableString;
+    /** Whether the CTA link should be normalized before rendering */
+    normalizeLink?: boolean;
+    /** The variant for the CTA (solid, outline or link). @defaultValue "primary" */
+    variant?: CTAVariant;
+    /** The text and icon color for the CTA. */
+    textColor?: ThemeColor;
+    /** Whether to open the link in a new tab */
+    openInNewTab?: boolean;
+  }>;
+
+  /**
+   * Where the custom CTAs are placed on the result card.
+   * "row" keeps them in the CTA row, "right" puts them on the right side of the result
+   * (stacked below the details on small screens) and "grid" shows them in a 2 column grid.
+   * @defaultValue "row"
+   */
+  customCTALayout?: CustomCTALayout;
+
   /** Settings for the image */
   image: {
     /** The field from the data to use for the image */
@@ -327,6 +358,8 @@ export const DEFAULT_LOCATOR_RESULT_CARD_PROPS: LocatorResultCardProps = {
     variant: "secondary",
     liveVisibility: false,
   },
+  customCTAs: [],
+  customCTALayout: "row",
   image: {
     field: "headshot",
     constantValue: {
@@ -347,7 +380,7 @@ const LOCATOR_IMAGE_CONSTANT_CONFIG: ImageField = {
 };
 
 const getDisplayFieldOptions = (
-  fieldTypeId: string | string[]
+  fieldTypeId?: string | string[]
 ): EmbeddedStringOption[] => {
   // TODO: This breaks the rule of hooks, refactor the custom render path
   const templateMetadata = useTemplateMetadata();
@@ -355,9 +388,17 @@ const getDisplayFieldOptions = (
     return [];
   }
   const displayFields = templateMetadata.locatorDisplayFields;
-  const fieldTypeIds = Array.isArray(fieldTypeId) ? fieldTypeId : [fieldTypeId];
+  // When no type is given, every display field is listed.
+  const fieldTypeIds = fieldTypeId
+    ? Array.isArray(fieldTypeId)
+      ? fieldTypeId
+      : [fieldTypeId]
+    : undefined;
   return Object.keys(templateMetadata.locatorDisplayFields)
-    .filter((key) => fieldTypeIds.includes(displayFields[key].field_type_id))
+    .filter(
+      (key) =>
+        !fieldTypeIds || fieldTypeIds.includes(displayFields[key].field_type_id)
+    )
     .map((key) => {
       const fieldData: FieldTypeData = displayFields[key];
       return {
@@ -367,8 +408,8 @@ const getDisplayFieldOptions = (
     });
 };
 
-const DisplayFieldSelector = (
-  fieldTypeId: string | string[]
+export const DisplayFieldSelector = (
+  fieldTypeId?: string | string[]
 ): BasicSelectorField => ({
   generation: { schema: z.string().optional() },
   type: "basicSelector",
@@ -376,6 +417,8 @@ const DisplayFieldSelector = (
   options: () => getDisplayFieldOptions(fieldTypeId),
   translateOptions: false,
 });
+
+const MAX_CUSTOM_CTAS = 6;
 
 export const locatorEntityTypeSchema = z.string().min(1);
 
@@ -806,6 +849,96 @@ export const LocatorResultCardFields: YextObjectField<LocatorResultCardProps> =
           },
         },
       },
+      customCTALayout: {
+        generation: { required: false },
+        label: msg("fields.customCTALayout", "Custom CTA Layout"),
+        type: "radio",
+        options: [
+          {
+            label: msg("fields.options.ctaLayoutRow", "In a row"),
+            value: "row",
+          },
+          {
+            label: msg("fields.options.ctaLayoutRight", "Right side of result"),
+            value: "right",
+          },
+          {
+            label: msg("fields.options.ctaLayoutGrid", "2 column grid"),
+            value: "grid",
+          },
+        ],
+      },
+      customCTAs: {
+        generation: { required: false },
+        label: msg("fields.customCTAs", "Custom CTAs"),
+        type: "array",
+        max: MAX_CUSTOM_CTAS,
+        getItemSummary: (
+          item: NonNullable<LocatorResultCardProps["customCTAs"]>[number],
+          i?: number
+        ) =>
+          (typeof item.label === "string"
+            ? item.label
+            : item.label?.defaultValue) || `CTA ${(i ?? 0) + 1}`,
+        arrayFields: {
+          label: {
+            type: "translatableString",
+            label: msg("fields.label", "Label"),
+            showApplyAllOption: false,
+            showFieldSelector: true,
+            getOptions: () => getDisplayFieldOptions("type.string"),
+          },
+          link: {
+            type: "translatableString",
+            label: msg("fields.link", "Link"),
+            showApplyAllOption: false,
+            showFieldSelector: true,
+            getOptions: () => getDisplayFieldOptions("type.string"),
+          },
+          normalizeLink: {
+            label: msg("fields.normalizeLink", "Normalize Link"),
+            type: "radio",
+            options: [
+              { label: msg("fields.options.yes", "Yes"), value: true },
+              { label: msg("fields.options.no", "No"), value: false },
+            ],
+          },
+          variant: {
+            label: msg("fields.ctaVariant", "CTA Variant"),
+            type: "radio",
+            options: ThemeOptions.CTA_VARIANT,
+          },
+          textColor: {
+            type: "basicSelector",
+            label: msg("fields.textColor", "Text Color"),
+            options: "SITE_COLOR",
+          },
+          bold: {
+            label: msg("fields.bold", "Bold"),
+            type: "radio",
+            options: [
+              { label: msg("fields.options.yes", "Yes"), value: true },
+              { label: msg("fields.options.no", "No"), value: false },
+            ],
+          },
+          openInNewTab: {
+            label: msg("fields.openInNewTab", "Open in New Tab"),
+            type: "radio",
+            options: [
+              { label: msg("fields.options.yes", "Yes"), value: true },
+              { label: msg("fields.options.no", "No"), value: false },
+            ],
+          },
+        },
+        defaultItemProps: {
+          label: "Call to Action",
+          link: "",
+          normalizeLink: true,
+          variant: "primary",
+          bold: false,
+          openInNewTab: true,
+        },
+      },
       image: {
         label: msg("fields.image", "Image"),
         type: "object",
@@ -971,6 +1104,8 @@ export const LocatorResultCard = React.memo(
       "TAP_TO_CALL"
     );
 
+    const customCTALayout = props.customCTALayout ?? "row";
+
     const getDirectionsLink: string | undefined = (() => {
       const listings = location.ref_listings ?? [];
       const listingsLink = getDirections(
@@ -1000,7 +1135,7 @@ export const LocatorResultCard = React.memo(
           ...getTextColorStyle(props.textColor),
         }}
       >
-        <div className="flex flex-wrap gap-4 w-full">
+        <div className="flex flex-wrap gap-4 w-full min-w-0 flex-1">
           <div className="w-full flex flex-col gap-4">
             {/** Heading section */}
             <div className="flex flex-row justify-between items-start gap-6">
@@ -1138,7 +1273,7 @@ export const LocatorResultCard = React.memo(
             </div>
           )}
           {/** CTA section */}
-          <div className="flex flex-col lg:flex-row gap-2 lg:gap-4 w-full md:pl-10 items-center md:items-stretch lg:items-center">
+          <div className="flex flex-col lg:flex-row lg:flex-wrap gap-2 lg:gap-4 w-full md:pl-10 items-center md:items-stretch lg:items-center">
             <PrimaryCTA
               primaryCTA={props.primaryCTA}
               primaryHeading={props.primaryHeading}
@@ -1165,12 +1300,159 @@ export const LocatorResultCard = React.memo(
                 className="basis-full sm:w-auto justify-center"
               />
             )}
+            {customCTALayout === "row" && (
+              <CustomCTAs
+                customCTAs={props.customCTAs}
+                location={location}
+                onClick={handleSecondaryCTAClick}
+                placement="row"
+              />
+            )}
           </div>
+          {customCTALayout === "grid" && (
+            <CustomCTAs
+              customCTAs={props.customCTAs}
+              location={location}
+              onClick={handleSecondaryCTAClick}
+              placement="grid"
+            />
+          )}
+          {customCTALayout === "right" && (
+            <CustomCTAs
+              customCTAs={props.customCTAs}
+              location={location}
+              onClick={handleSecondaryCTAClick}
+              placement="stacked"
+            />
+          )}
         </div>
+        {customCTALayout === "right" && (
+          <CustomCTAs
+            customCTAs={props.customCTAs}
+            location={location}
+            onClick={handleSecondaryCTAClick}
+            placement="rightColumn"
+          />
+        )}
       </Background>
     );
   }
 );
+
+/** Returns the template string for the given language. */
+const getLinkTemplate = (
+  template: TranslatableString | undefined,
+  language: string
+): string => {
+  if (!template) return "";
+  if (typeof template === "string") return template;
+  const localized = template as Record<string, unknown>;
+  const value = localized[language] ?? localized.defaultValue;
+  return typeof value === "string" ? value : "";
+};
+
+/**
+ * Whether the link can be rendered for the entity: it must resolve to a non-empty value, and
+ * every entity field it references (e.g. [[c_cateringUrl]]) must have a value.
+ */
+const resolveCustomCtaLink = (
+  template: TranslatableString,
+  language: string,
+  location: Location
+): string | undefined => {
+  const rawTemplate = getLinkTemplate(template, language);
+  const referencedFields = [...rawTemplate.matchAll(/\[\[([^\]]+)\]\]/g)].map(
+    (match) => match[1].trim()
+  );
+  const hasMissingField = referencedFields.some((fieldId) => {
+    const value = resolveProjectedField(location, fieldId);
+    return (
+      value === undefined ||
+      value === null ||
+      (typeof value === "string" && value.trim() === "") ||
+      (Array.isArray(value) && value.length === 0)
+    );
+  });
+  if (hasMissingField) return undefined;
+
+  const resolved = resolveComponentData(template, language, location)?.trim();
+  return resolved || undefined;
+};
+
+type CustomCTAPlacement = "row" | "grid" | "stacked" | "rightColumn";
+
+const CustomCTAs = (props: {
+  customCTAs: LocatorResultCardProps["customCTAs"];
+  location: Location;
+  onClick: React.ComponentProps<typeof CTA>["onClick"];
+  placement: CustomCTAPlacement;
+}) => {
+  const { i18n, t } = useTranslation();
+  const { placement } = props;
+
+  const visibleCTAs = (props.customCTAs ?? [])
+    .slice(0, MAX_CUSTOM_CTAS)
+    .map((cta) => ({
+      cta,
+      link: resolveCustomCtaLink(cta.link, i18n.language, props.location),
+    }))
+    .filter(
+      (item): item is { cta: typeof item.cta; link: string } => !!item.link
+    );
+  if (visibleCTAs.length === 0) return null;
+
+  const ctaClassName = (bold?: boolean) =>
+    themeManagerCn(
+      placement === "row"
+        ? "basis-full sm:w-auto justify-center"
+        : // Fill the column/grid cell and wrap long labels instead of overflowing.
+          "w-full sm:!w-full justify-center text-center !whitespace-normal !px-4 break-words",
+      bold && "!font-bold"
+    );
+
+  const ctas = visibleCTAs.map(({ cta, link }, index) => (
+    <CTA
+      key={`${index}-${link}`}
+      link={link}
+      label={
+        resolveComponentData(cta.label, i18n.language, props.location) ||
+        t("callToAction", "Call to Action")
+      }
+      variant={cta.variant ?? "primary"}
+      textColor={cta.textColor}
+      normalizeLink={cta.normalizeLink ?? true}
+      openInNewTab={cta.openInNewTab ?? true}
+      onClick={props.onClick}
+      className={ctaClassName(cta.bold)}
+    />
+  ));
+
+  switch (placement) {
+    case "grid":
+      // 2 columns (2x3 for 6 CTAs) from small screens up, a single column on phones
+      return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 lg:gap-4 w-full md:pl-10">
+          {ctas}
+        </div>
+      );
+    case "stacked":
+      // Right-side layout on small screens: stacked under the card content
+      return (
+        <div className="flex flex-col gap-2 w-full md:pl-10 lg:hidden">
+          {ctas}
+        </div>
+      );
+    case "rightColumn":
+      // Right-side layout on large screens: a column at the right edge of the result
+      return (
+        <div className="hidden lg:flex flex-col gap-2 w-[160px] xl:w-[200px] max-w-[40%] shrink-0 min-w-0 self-center">
+          {ctas}
+        </div>
+      );
+    default:
+      return <>{ctas}</>;
+  }
+};
 
 const PrimaryCTA = (props: {
   primaryCTA: LocatorResultCardProps["primaryCTA"];

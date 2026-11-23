@@ -34,20 +34,61 @@ export const DEFAULT_LOCATION_STYLE = {
   pinColor: backgroundColors.background6.value,
 };
 export const MAX_PIN_ICON_WIDTH = 27;
+export const MAX_PIN_SIZE_MULTIPLIER = 4;
 const PIN_ICON_MAX_FILE_SIZE_BYTES = 128 * 1024;
+
+export type PinStyle = {
+  /** Render the custom image as the entire pin, without the default pin background. */
+  imageAsPin?: boolean;
+  /** Size multiplier for an `imageAsPin` image. 1 is the default pin size. */
+  sizeMultiplier?: number;
+  color?: ThemeColor;
+  icon?: string;
+  customImage?: {
+    url: string;
+    width?: number;
+    aspectRatio?: number;
+  };
+};
 
 export type LocationStyleConfig = Record<
   string,
-  {
-    color?: ThemeColor;
-    icon?: string;
-    customImage?: {
-      url: string;
-      width?: number;
-      aspectRatio?: number;
-    };
+  PinStyle & {
+    /** Entity field (e.g. a custom location type field) used to pick a pin variant. */
+    variantField?: string;
+    /** Pin styles keyed by the normalized value of `variantField`. */
+    variants?: Record<string, PinStyle>;
   }
 >;
+
+export const normalizePinVariantValue = (
+  value: unknown
+): string | undefined => {
+  const first = Array.isArray(value) ? value[0] : value;
+  if (first === undefined || first === null) return undefined;
+  const normalized = String(first).trim().toLowerCase();
+  return normalized || undefined;
+};
+
+/**
+ * Returns the pin style for a result. Uses the variant matching the entity's
+ * variant field value when one is configured, otherwise the entity type style.
+ */
+export const resolvePinStyle = (
+  entityStyle: LocationStyleConfig[string] | undefined,
+  rawData: Record<string, any> | undefined
+): PinStyle | undefined => {
+  if (!entityStyle?.variantField || !entityStyle.variants) {
+    return entityStyle;
+  }
+  let current: any = rawData;
+  for (const key of entityStyle.variantField.split(".")) {
+    current = current?.[key];
+  }
+  const variantValue = normalizePinVariantValue(current);
+  const variant = variantValue ? entityStyle.variants[variantValue] : undefined;
+  return variant ?? entityStyle;
+};
 
 export const LOCATOR_PIN_ICON_FIELD: ImageField = {
   type: "image",
@@ -345,9 +386,10 @@ const LocatorMapPin = <T,>({
   locationStyleConfig,
 }: LocatorMapPinProps<T>) => {
   const entityType = result.entityType;
-  const entityLocationStyle = entityType
-    ? locationStyleConfig?.[entityType]
-    : undefined;
+  const entityLocationStyle = resolvePinStyle(
+    entityType ? locationStyleConfig?.[entityType] : undefined,
+    result.rawData as Record<string, any> | undefined
+  );
 
   return (
     <MapPinIcon
@@ -358,6 +400,10 @@ const LocatorMapPin = <T,>({
         entityLocationStyle?.customImage?.width ?? DEFAULT_PIN_ICON_WIDTH
       }
       disableContrastIcon={!!entityLocationStyle?.customImage}
+      imageSizeMultiplier={entityLocationStyle?.sizeMultiplier}
+      imageAsPin={
+        !!entityLocationStyle?.imageAsPin && !!entityLocationStyle.customImage
+      }
       aspectRatio={entityLocationStyle?.customImage?.aspectRatio}
       selected={selected}
     />
