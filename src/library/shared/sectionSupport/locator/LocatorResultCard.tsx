@@ -245,6 +245,25 @@ export interface LocatorResultCardProps {
     liveVisibility: boolean;
   };
 
+  /**
+   * Up to 6 additional pill-shaped CTAs. A CTA is hidden for an entity when its link
+   * references an entity field that has no value.
+   */
+  customCTAs?: Array<{
+    /** Label for the CTA */
+    label: TranslatableString;
+    /** Template for the CTA link, which can contain entity field references */
+    link: TranslatableString;
+    /** Whether the CTA link should be normalized before rendering */
+    normalizeLink?: boolean;
+    /** The variant for the CTA (solid, outline or link). @defaultValue "primary" */
+    variant?: CTAVariant;
+    /** The text and icon color for the CTA. */
+    textColor?: ThemeColor;
+    /** Whether to open the link in a new tab */
+    openInNewTab?: boolean;
+  }>;
+
   /** Settings for the image */
   image: {
     /** The field from the data to use for the image */
@@ -327,6 +346,7 @@ export const DEFAULT_LOCATOR_RESULT_CARD_PROPS: LocatorResultCardProps = {
     variant: "secondary",
     liveVisibility: false,
   },
+  customCTAs: [],
   image: {
     field: "headshot",
     constantValue: {
@@ -347,7 +367,7 @@ const LOCATOR_IMAGE_CONSTANT_CONFIG: ImageField = {
 };
 
 const getDisplayFieldOptions = (
-  fieldTypeId: string | string[]
+  fieldTypeId?: string | string[]
 ): EmbeddedStringOption[] => {
   // TODO: This breaks the rule of hooks, refactor the custom render path
   const templateMetadata = useTemplateMetadata();
@@ -355,9 +375,17 @@ const getDisplayFieldOptions = (
     return [];
   }
   const displayFields = templateMetadata.locatorDisplayFields;
-  const fieldTypeIds = Array.isArray(fieldTypeId) ? fieldTypeId : [fieldTypeId];
+  // When no type is given, every display field is listed.
+  const fieldTypeIds = fieldTypeId
+    ? Array.isArray(fieldTypeId)
+      ? fieldTypeId
+      : [fieldTypeId]
+    : undefined;
   return Object.keys(templateMetadata.locatorDisplayFields)
-    .filter((key) => fieldTypeIds.includes(displayFields[key].field_type_id))
+    .filter(
+      (key) =>
+        !fieldTypeIds || fieldTypeIds.includes(displayFields[key].field_type_id)
+    )
     .map((key) => {
       const fieldData: FieldTypeData = displayFields[key];
       return {
@@ -367,8 +395,8 @@ const getDisplayFieldOptions = (
     });
 };
 
-const DisplayFieldSelector = (
-  fieldTypeId: string | string[]
+export const DisplayFieldSelector = (
+  fieldTypeId?: string | string[]
 ): BasicSelectorField => ({
   generation: { schema: z.string().optional() },
   type: "basicSelector",
@@ -376,6 +404,8 @@ const DisplayFieldSelector = (
   options: () => getDisplayFieldOptions(fieldTypeId),
   translateOptions: false,
 });
+
+const MAX_CUSTOM_CTAS = 6;
 
 export const locatorEntityTypeSchema = z.string().min(1);
 
@@ -806,6 +836,68 @@ export const LocatorResultCardFields: YextObjectField<LocatorResultCardProps> =
           },
         },
       },
+      customCTAs: {
+        generation: { required: false },
+        label: msg("fields.customCTAs", "Custom CTAs"),
+        type: "array",
+        max: MAX_CUSTOM_CTAS,
+        getItemSummary: (
+          item: NonNullable<LocatorResultCardProps["customCTAs"]>[number],
+          i?: number
+        ) =>
+          (typeof item.label === "string"
+            ? item.label
+            : item.label?.defaultValue) || `CTA ${(i ?? 0) + 1}`,
+        arrayFields: {
+          label: {
+            type: "translatableString",
+            label: msg("fields.label", "Label"),
+            showApplyAllOption: false,
+            showFieldSelector: true,
+            getOptions: () => getDisplayFieldOptions("type.string"),
+          },
+          link: {
+            type: "translatableString",
+            label: msg("fields.link", "Link"),
+            showApplyAllOption: false,
+            showFieldSelector: true,
+            getOptions: () => getDisplayFieldOptions("type.string"),
+          },
+          normalizeLink: {
+            label: msg("fields.normalizeLink", "Normalize Link"),
+            type: "radio",
+            options: [
+              { label: msg("fields.options.yes", "Yes"), value: true },
+              { label: msg("fields.options.no", "No"), value: false },
+            ],
+          },
+          variant: {
+            label: msg("fields.ctaVariant", "CTA Variant"),
+            type: "radio",
+            options: ThemeOptions.CTA_VARIANT,
+          },
+          textColor: {
+            type: "basicSelector",
+            label: msg("fields.textColor", "Text Color"),
+            options: "SITE_COLOR",
+          },
+          openInNewTab: {
+            label: msg("fields.openInNewTab", "Open in New Tab"),
+            type: "radio",
+            options: [
+              { label: msg("fields.options.yes", "Yes"), value: true },
+              { label: msg("fields.options.no", "No"), value: false },
+            ],
+          },
+        },
+        defaultItemProps: {
+          label: "Call to Action",
+          link: "",
+          normalizeLink: true,
+          variant: "primary",
+          openInNewTab: true,
+        },
+      },
       image: {
         label: msg("fields.image", "Image"),
         type: "object",
@@ -1138,7 +1230,7 @@ export const LocatorResultCard = React.memo(
             </div>
           )}
           {/** CTA section */}
-          <div className="flex flex-col lg:flex-row gap-2 lg:gap-4 w-full md:pl-10 items-center md:items-stretch lg:items-center">
+          <div className="flex flex-col lg:flex-row lg:flex-wrap gap-2 lg:gap-4 w-full md:pl-10 items-center md:items-stretch lg:items-center">
             <PrimaryCTA
               primaryCTA={props.primaryCTA}
               primaryHeading={props.primaryHeading}
@@ -1165,12 +1257,93 @@ export const LocatorResultCard = React.memo(
                 className="basis-full sm:w-auto justify-center"
               />
             )}
+            <CustomCTAs
+              customCTAs={props.customCTAs}
+              location={location}
+              onClick={handleSecondaryCTAClick}
+            />
           </div>
         </div>
       </Background>
     );
   }
 );
+
+/** Returns the template string for the given language. */
+const getLinkTemplate = (
+  template: TranslatableString | undefined,
+  language: string
+): string => {
+  if (!template) return "";
+  if (typeof template === "string") return template;
+  const localized = template as Record<string, unknown>;
+  const value = localized[language] ?? localized.defaultValue;
+  return typeof value === "string" ? value : "";
+};
+
+/**
+ * Whether the link can be rendered for the entity: it must resolve to a non-empty value, and
+ * every entity field it references (e.g. [[c_cateringUrl]]) must have a value.
+ */
+const resolveCustomCtaLink = (
+  template: TranslatableString,
+  language: string,
+  location: Location
+): string | undefined => {
+  const rawTemplate = getLinkTemplate(template, language);
+  const referencedFields = [...rawTemplate.matchAll(/\[\[([^\]]+)\]\]/g)].map(
+    (match) => match[1].trim()
+  );
+  const hasMissingField = referencedFields.some((fieldId) => {
+    const value = resolveProjectedField(location, fieldId);
+    return (
+      value === undefined ||
+      value === null ||
+      (typeof value === "string" && value.trim() === "") ||
+      (Array.isArray(value) && value.length === 0)
+    );
+  });
+  if (hasMissingField) return undefined;
+
+  const resolved = resolveComponentData(template, language, location)?.trim();
+  return resolved || undefined;
+};
+
+const CustomCTAs = (props: {
+  customCTAs: LocatorResultCardProps["customCTAs"];
+  location: Location;
+  onClick: React.ComponentProps<typeof CTA>["onClick"];
+}) => {
+  const { i18n, t } = useTranslation();
+  return (
+    <>
+      {(props.customCTAs ?? []).slice(0, MAX_CUSTOM_CTAS).map((cta, index) => {
+        const link = resolveCustomCtaLink(
+          cta.link,
+          i18n.language,
+          props.location
+        );
+        if (!link) return null;
+        return (
+          <CTA
+            key={`${index}-${link}`}
+            link={link}
+            label={
+              resolveComponentData(cta.label, i18n.language, props.location) ||
+              t("callToAction", "Call to Action")
+            }
+            variant={cta.variant ?? "primary"}
+            textColor={cta.textColor}
+            normalizeLink={cta.normalizeLink ?? true}
+            openInNewTab={cta.openInNewTab ?? true}
+            onClick={props.onClick}
+            className="basis-full sm:w-auto justify-center"
+          />
+        );
+      })}
+    </>
+  );
+};
 
 const PrimaryCTA = (props: {
   primaryCTA: LocatorResultCardProps["primaryCTA"];

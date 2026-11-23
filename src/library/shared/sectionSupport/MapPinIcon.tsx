@@ -37,6 +37,7 @@ export const MapPinIcon = ({
   disableContrastIcon,
   aspectRatio,
   selected,
+  imageAsPin,
 }: {
   color?: ThemeColor;
   resultIndex?: number;
@@ -45,6 +46,8 @@ export const MapPinIcon = ({
   disableContrastIcon?: boolean;
   aspectRatio?: number;
   selected?: boolean;
+  /** Renders `icon` as the whole pin (no teardrop background), at the standard pin size. */
+  imageAsPin?: boolean;
 }) => {
   const { t } = useTranslation();
   const pinHeight = 41;
@@ -87,6 +90,34 @@ export const MapPinIcon = ({
       : t("showPinDetailsDefault", {
           defaultValue: "Show pin details",
         });
+
+  if (imageAsPin && icon) {
+    return (
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        className="components block cursor-pointer appearance-none border-0 bg-transparent p-0"
+      >
+        <svg
+          display="block"
+          height={selected ? pinScale * pinHeight : pinHeight}
+          width={selected ? pinScale * pinWidth : pinWidth}
+          viewBox="0 0 27 41"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <image
+            href={icon}
+            x="0"
+            y="0"
+            width="27"
+            height="41"
+            preserveAspectRatio="xMidYMax meet"
+          />
+        </svg>
+      </button>
+    );
+  }
 
   return (
     <button

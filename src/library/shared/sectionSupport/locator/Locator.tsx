@@ -23,12 +23,14 @@ import {
   YextComponentConfig,
   YextFields,
 } from "@yext/visual-editor/section-library-support";
+import { z } from "zod";
 import { getFacetFieldOptions, KEYWORDS_FIELD } from "./Filters";
 import {
   DEFAULT_LOCATOR_RESULT_CARD_PROPS,
   DistanceDisplayOption,
   LocatorResultCardProps,
   locatorEntityTypeSchema,
+  DisplayFieldSelector,
 } from "./LocatorResultCard";
 import { ResultCardPropsField } from "./Results";
 import { LocatorWrapper } from "./LocatorWrapper";
@@ -78,17 +80,125 @@ const locatorPinIconFields = {
     max: MAX_PIN_ICON_WIDTH,
   },
   aspectRatio: ImageStylingFields.aspectRatio,
-} satisfies YextFields<
-  NonNullable<LocatorProps["locationStyles"][number]["pinIcon"]>
->;
+} satisfies YextFields<LocatorPinIcon>;
+
+const variantPinColorField = {
+  generation: { required: false },
+  type: "basicSelector",
+  label: msg("fields.pinColor", "Pin Color"),
+  options: "BACKGROUND_COLOR",
+} as const;
 
 const locatorPinIconSchema = inferFieldZodSchema({
   type: "object",
   objectFields: locatorPinIconFields,
 });
 
+const makeRenderPinIconField =
+  (showSizeControls: boolean) =>
+  ({ value, onChange }: YextCustomFieldRenderProps<LocatorPinIcon>) => {
+    const selectedType = value?.type ?? "none";
+    return (
+      <div className="flex flex-col gap-3">
+        <YextAutoField
+          field={locatorPinIconFields.type}
+          value={selectedType}
+          onChange={(type) =>
+            onChange({
+              ...value,
+              type,
+              iconName:
+                type === "icon"
+                  ? (value?.iconName ?? DEFAULT_MAKI_ICON_NAME)
+                  : undefined,
+            })
+          }
+        />
+        {selectedType === "icon" && (
+          <YextAutoField
+            field={locatorPinIconFields.iconName}
+            value={value?.iconName}
+            onChange={(iconName) =>
+              onChange({ ...value, type: "icon", iconName })
+            }
+          />
+        )}
+        {selectedType === "customImage" && (
+          <>
+            <YextAutoField
+              field={locatorPinIconFields.image}
+              value={value?.image}
+              onChange={(image) =>
+                onChange({ ...value, type: "customImage", image })
+              }
+            />
+            {showSizeControls && (
+              <>
+                <FieldLabel label={pt("fields.options.width", "Width")}>
+                  <YextAutoField
+                    field={locatorPinIconFields.width}
+                    value={value?.width ?? DEFAULT_PIN_ICON_WIDTH}
+                    onChange={(width) =>
+                      onChange({
+                        ...value,
+                        type: "customImage",
+                        width,
+                      })
+                    }
+                  />
+                </FieldLabel>
+                <YextAutoField
+                  field={locatorPinIconFields.aspectRatio}
+                  value={value?.aspectRatio}
+                  onChange={(aspectRatio) =>
+                    onChange({
+                      ...value,
+                      type: "customImage",
+                      aspectRatio,
+                    })
+                  }
+                />
+              </>
+            )}
+          </>
+        )}
+        {!showSizeControls && selectedType !== "customImage" && (
+          <YextAutoField
+            field={variantPinColorField}
+            value={value?.pinColor}
+            onChange={(pinColor) => onChange({ ...value, pinColor })}
+          />
+        )}
+      </div>
+    );
+  };
+
+const renderPinIconField = makeRenderPinIconField(true);
+// Variant images are rendered as the whole pin at the standard pin size.
+const renderVariantPinIconField = makeRenderPinIconField(false);
+
 const DEFAULT_TITLE = "Find a Location";
 const DEFAULT_DISTANCE_DISPLAY = "distanceFromUser";
+
+export interface LocatorPinIcon {
+  /**
+   * Pin color. Only used by pin variants, where it is edited alongside the icon so it can be
+   * hidden for custom images (which replace the whole pin).
+   */
+  pinColor?: ThemeColor;
+  type: "none" | "icon" | "customImage";
+  /** Defaults to the first available Maki icon when type is 'icon'. */
+  iconName?: string;
+  /** Image rendered within the pin when type is 'customImage'. */
+  image?: TranslatableAssetImage;
+  /**
+   * Width of the custom image rendered within the pin.
+   * @defaultValue 14
+   * */
+  width?: number;
+  /** Aspect ratio of the custom image rendered within the pin. */
+  aspectRatio?: number;
+}
 
 export interface LocatorProps {
   /**
@@ -113,22 +223,21 @@ export interface LocatorProps {
     /** The entity type this style applies to. */
     entityType: LocatorEntityType;
     /** Whether to render an icon in the pin. */
-    pinIcon?: {
-      type: "none" | "icon" | "customImage";
-      /** Defaults to the first available Maki icon when type is 'icon'. */
-      iconName?: string;
-      /** Image rendered within the pin when type is 'customImage'. */
-      image?: TranslatableAssetImage;
-      /**
-       * Width of the custom image rendered within the pin.
-       * @defaultValue 14
-       * */
-      width?: number;
-      /** Aspect ratio of the custom image rendered within the pin. */
-      aspectRatio?: number;
-    };
+    pinIcon?: LocatorPinIcon;
     /** The color applied to the pin. */
     pinColor?: ThemeColor;
+    /**
+     * Entity field (e.g. a custom "Location Type" field) whose value selects a pin variant.
+     * Results whose value matches no variant use the default pin style above.
+     */
+    variantField?: string;
+    /** Pin styles per value of `variantField`. */
+    variants?: Array<{
+      /** The field value this variant applies to (case-insensitive). */
+      value: string;
+      pinIcon?: LocatorPinIcon;
+      pinColor?: ThemeColor;
+    }>;
   }>;
 
   /**
@@ -256,82 +365,46 @@ const locatorFields: YextFields<LocatorProps> = {
       pinIcon: {
         generation: { schema: locatorPinIconSchema },
         type: "custom",
-        render: ({
-          value,
-          onChange,
-        }: YextCustomFieldRenderProps<
-          LocatorProps["locationStyles"][number]["pinIcon"]
-        >) => {
-          const selectedType = value?.type ?? "none";
-          return (
-            <div className="flex flex-col gap-3">
-              <YextAutoField
-                field={locatorPinIconFields.type}
-                value={selectedType}
-                onChange={(type) =>
-                  onChange({
-                    ...value,
-                    type,
-                    iconName:
-                      type === "icon"
-                        ? (value?.iconName ?? DEFAULT_MAKI_ICON_NAME)
-                        : undefined,
-                  })
-                }
-              />
-              {selectedType === "icon" && (
-                <YextAutoField
-                  field={locatorPinIconFields.iconName}
-                  value={value?.iconName}
-                  onChange={(iconName) =>
-                    onChange({ ...value, type: "icon", iconName })
-                  }
-                />
-              )}
-              {selectedType === "customImage" && (
-                <>
-                  <YextAutoField
-                    field={locatorPinIconFields.image}
-                    value={value?.image}
-                    onChange={(image) =>
-                      onChange({ ...value, type: "customImage", image })
-                    }
-                  />
-                  <FieldLabel label={pt("fields.options.width", "Width")}>
-                    <YextAutoField
-                      field={locatorPinIconFields.width}
-                      value={value?.width ?? DEFAULT_PIN_ICON_WIDTH}
-                      onChange={(width) =>
-                        onChange({
-                          ...value,
-                          type: "customImage",
-                          width,
-                        })
-                      }
-                    />
-                  </FieldLabel>
-                  <YextAutoField
-                    field={locatorPinIconFields.aspectRatio}
-                    value={value?.aspectRatio}
-                    onChange={(aspectRatio) =>
-                      onChange({
-                        ...value,
-                        type: "customImage",
-                        aspectRatio,
-                      })
-                    }
-                  />
-                </>
-              )}
-            </div>
-          );
-        },
+        render: renderPinIconField,
       },
       pinColor: {
         generation: { required: false },
         type: "basicSelector",
         label: msg("fields.pinColor", "Pin Color"),
         options: "BACKGROUND_COLOR",
+      },
+      variantField: {
+        generation: { schema: z.string().optional() },
+        ...DisplayFieldSelector(),
+        label: msg("fields.pinVariantField", "Pin Variant Field"),
+      },
+      variants: {
+        generation: { required: false },
+        type: "array",
+        label: msg("fields.pinVariants", "Pin Variants"),
+        getItemSummary: (
+          item: NonNullable<
+            LocatorProps["locationStyles"][number]["variants"]
+          >[number]
+        ) => item.value || "Variant",
+        arrayFields: {
+          value: {
+            type: "text",
+            label: msg("fields.pinVariantValue", "Field Value"),
+          },
+          pinIcon: {
+            generation: { schema: locatorPinIconSchema },
+            type: "custom",
+            render: renderVariantPinIconField,
+          },
+        },
+        defaultItemProps: {
+          value: "",
+          pinIcon: {
+            type: "none",
+            pinColor: backgroundColors.background6.value,
+          },
+        },
       },
     },
     defaultItemProps: {
