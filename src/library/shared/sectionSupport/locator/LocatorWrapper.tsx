@@ -83,6 +83,8 @@ import {
   LoadingMapPlaceholder,
   LocationStyleConfig,
   makiIconMap,
+  normalizePinVariantValue,
+  type PinStyle,
 } from "./Map.tsx";
 import {
   MobileLocatorResultsSection,
@@ -607,33 +609,51 @@ const LocatorInternal = ({
   );
 
   const locationStylesConfig = React.useMemo(() => {
-    const config: LocationStyleConfig = {};
-    (locationStyles ?? []).forEach((locationStyle) => {
-      const entityType = locationStyle.entityType;
-      if (!entityType) return;
-      const iconValue =
-        locationStyle.pinIcon?.type === "icon"
-          ? locationStyle.pinIcon.iconName
-          : undefined;
+    const buildPinStyle = (
+      pinIcon: LocatorProps["locationStyles"][number]["pinIcon"],
+      pinColor: LocatorProps["locationStyles"][number]["pinColor"]
+    ): PinStyle => {
+      const iconValue = pinIcon?.type === "icon" ? pinIcon.iconName : undefined;
       const customImageValue =
-        locationStyle.pinIcon?.type === "customImage"
-          ? resolveLocalizedAssetImage(
-              locationStyle.pinIcon.image,
-              i18n.language
-            )
+        pinIcon?.type === "customImage"
+          ? resolveLocalizedAssetImage(pinIcon.image, i18n.language)
           : undefined;
       const customImageUrl = customImageValue?.url?.trim();
-      config[entityType] = {
-        color: locationStyle.pinColor,
+      return {
+        color: pinColor,
         icon:
           typeof iconValue === "string" ? makiIconMap[iconValue] : undefined,
         customImage: customImageUrl
           ? {
               url: customImageUrl,
-              width: locationStyle.pinIcon?.width,
-              aspectRatio: locationStyle.pinIcon?.aspectRatio,
+              width: pinIcon?.width,
+              aspectRatio: pinIcon?.aspectRatio,
             }
           : undefined,
+      };
+    };
+
+    const config: LocationStyleConfig = {};
+    (locationStyles ?? []).forEach((locationStyle) => {
+      const entityType = locationStyle.entityType;
+      if (!entityType) return;
+      const variants: Record<string, PinStyle> = {};
+      (locationStyle.variants ?? []).forEach((variant) => {
+        const key = normalizePinVariantValue(variant.value);
+        if (key) {
+          variants[key] = {
+            ...buildPinStyle(
+              variant.pinIcon,
+              variant.pinIcon?.pinColor ?? variant.pinColor
+            ),
+            imageAsPin: true,
+          };
+        }
+      });
+      config[entityType] = {
+        ...buildPinStyle(locationStyle.pinIcon, locationStyle.pinColor),
+        variantField: locationStyle.variantField,
+        variants: Object.keys(variants).length ? variants : undefined,
       };
     });
     return config;
